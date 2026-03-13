@@ -1697,6 +1697,35 @@ WebSocket: `ws://localhost:3001/ws/sensing` (real-time sensing + vital signs)
 </details>
 
 <details>
+<summary><strong>QEMU Firmware Testing (ADR-061)</strong></summary>
+
+Test ESP32-S3 firmware without physical hardware using Espressif's QEMU fork.
+
+```bash
+# Build with mock CSI
+cd firmware/esp32-csi-node
+idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.qemu" build
+
+# Create flash image
+esptool.py --chip esp32s3 merge_bin -o build/qemu_flash.bin \
+  --flash_size 8MB 0x0 build/bootloader/bootloader.bin \
+  0x8000 build/partition_table/partition-table.bin \
+  0x20000 build/esp32-csi-node.bin
+
+# Run in QEMU
+qemu-system-xtensa -machine esp32s3 -nographic \
+  -drive file=build/qemu_flash.bin,if=mtd,format=raw
+```
+
+**10 test scenarios**: empty room, static person, walking, fall, multi-person, channel sweep, MAC filter, ring overflow, boundary RSSI, zero-length frames.
+
+**14 NVS configs**: default, WiFi-only, full ADR-060, edge tiers 0/1/2, TDM mesh, WASM signed/unsigned, 5GHz, boundary values.
+
+See [ADR-061](docs/adr/ADR-061-qemu-esp32s3-firmware-testing.md) and [firmware README](firmware/esp32-csi-node/README.md) for full details.
+
+</details>
+
+<details>
 <summary><strong>Python Legacy CLI</strong> — v1 API server commands</summary>
 
 ```bash
