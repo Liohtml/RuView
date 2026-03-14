@@ -92,6 +92,15 @@ detect_os() {
             fi
             ;;
         Darwin) OS="macos"; DISTRO="macos" ;;
+        MINGW*|MSYS*)
+            err "Native Windows/MINGW detected."
+            err "QEMU ESP32-S3 must be built on Linux or macOS."
+            err "Options:"
+            err "  1. Use WSL:  wsl bash scripts/install-qemu.sh"
+            err "  2. Use Docker: docker run -it ubuntu:22.04 bash"
+            err "  3. Download pre-built: https://github.com/espressif/qemu/releases"
+            exit 3
+            ;;
         *)      err "Unsupported OS: $(uname -s)"; exit 3 ;;
     esac
 
