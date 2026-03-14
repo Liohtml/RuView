@@ -15,6 +15,8 @@
  * to nothing on production builds.
  */
 
+#include "sdkconfig.h"
+
 #ifdef CONFIG_CSI_MOCK_ENABLED
 
 #include "mock_csi.h"
@@ -94,7 +96,7 @@ static const uint8_t s_sweep_channels[] = {1, 6, 11, 36};
 static const uint8_t s_good_mac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
 
 /** "Wrong" MAC that should be rejected by the filter. */
-static const uint8_t s_bad_mac[6]  = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+static const uint8_t s_bad_mac[6] __attribute__((unused)) = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
 
 /* ---- LFSR pseudo-random number generator ---- */
 
