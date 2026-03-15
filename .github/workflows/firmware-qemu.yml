@@ -348,6 +348,7 @@ jobs:
 
       - name: Run swarm smoke test
         run: |
+          . $IDF_PATH/export.sh
           python3 scripts/qemu_swarm.py --preset ci_matrix \
             --qemu-path /opt/qemu-esp32/bin/qemu-system-xtensa \
             --output-dir build/swarm-results
