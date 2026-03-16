@@ -20,8 +20,9 @@
 typedef int esp_err_t;
 #define ESP_OK          0
 #define ESP_FAIL        (-1)
-#define ESP_ERR_NO_MEM  0x101
+#define ESP_ERR_NO_MEM      0x101
 #define ESP_ERR_INVALID_ARG 0x102
+#define ESP_ERR_NOT_FOUND   0x105
 
 /* ---- esp_log.h ---- */
 #define ESP_LOGI(tag, fmt, ...)  ((void)0)
@@ -33,11 +34,31 @@ typedef int esp_err_t;
 /* ---- esp_timer.h ---- */
 typedef void *esp_timer_handle_t;
 
+/** Timer callback type (matches ESP-IDF signature). */
+typedef void (*esp_timer_cb_t)(void *arg);
+
+/** Timer creation arguments (matches ESP-IDF esp_timer_create_args_t). */
+typedef struct {
+    esp_timer_cb_t callback;
+    void          *arg;
+    const char    *name;
+} esp_timer_create_args_t;
+
 /**
  * Stub: returns a monotonically increasing microsecond counter.
  * Declared here, defined in esp_stubs.c.
  */
 int64_t esp_timer_get_time(void);
+
+/** Stub: timer lifecycle (no-ops for fuzz testing). */
+static inline esp_err_t esp_timer_create(const esp_timer_create_args_t *args, esp_timer_handle_t *h) {
+    (void)args; if (h) *h = (void *)1; return ESP_OK;
+}
+static inline esp_err_t esp_timer_start_periodic(esp_timer_handle_t h, uint64_t period) {
+    (void)h; (void)period; return ESP_OK;
+}
+static inline esp_err_t esp_timer_stop(esp_timer_handle_t h) { (void)h; return ESP_OK; }
+static inline esp_err_t esp_timer_delete(esp_timer_handle_t h) { (void)h; return ESP_OK; }
 
 /* ---- esp_wifi_types.h ---- */
 

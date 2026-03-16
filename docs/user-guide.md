@@ -819,18 +819,29 @@ Pre-built binaries are available at [Releases](https://github.com/ruvnet/RuView/
 
 | Release | What It Includes | Tag |
 |---------|-----------------|-----|
-| [v0.4.1](https://github.com/ruvnet/RuView/releases/tag/v0.4.1-esp32) | **Stable** — CSI build fix, compile guard, AMOLED display, edge intelligence ([ADR-057](../docs/adr/ADR-057-firmware-csi-build-guard.md)) | `v0.4.1-esp32` |
+| [v0.5.0](https://github.com/ruvnet/RuView/releases/tag/v0.5.0-esp32) | **Stable (recommended)** — mmWave sensor fusion (MR60BHA2/LD2410 auto-detect), 48-byte fused vitals, all v0.4.3.1 fixes | `v0.5.0-esp32` |
+| [v0.4.3.1](https://github.com/ruvnet/RuView/releases/tag/v0.4.3.1-esp32) | Fall detection fix ([#263](https://github.com/ruvnet/RuView/issues/263)), 4MB flash ([#265](https://github.com/ruvnet/RuView/issues/265)), watchdog fix ([#266](https://github.com/ruvnet/RuView/issues/266)) | `v0.4.3.1-esp32` |
+| [v0.4.1](https://github.com/ruvnet/RuView/releases/tag/v0.4.1-esp32) | CSI build fix, compile guard, AMOLED display, edge intelligence ([ADR-057](../docs/adr/ADR-057-firmware-csi-build-guard.md)) | `v0.4.1-esp32` |
 | [v0.3.0-alpha](https://github.com/ruvnet/RuView/releases/tag/v0.3.0-alpha-esp32) | Alpha — adds on-device edge intelligence (ADR-039) | `v0.3.0-alpha-esp32` |
 | [v0.2.0](https://github.com/ruvnet/RuView/releases/tag/v0.2.0-esp32) | Raw CSI streaming, TDM, channel hopping, QUIC mesh | `v0.2.0-esp32` |
 
-> **Important:** Firmware versions prior to v0.4.1 had CSI **disabled** in the build config, causing a runtime error (`E wifi:CSI not enabled in menuconfig!`). Always use v0.4.1 or later.
+> **Important:** Always use **v0.4.3.1 or later**. Earlier versions have false fall detection alerts (v0.4.2 and below) and CSI disabled in the build config (pre-v0.4.1).
 
 ```bash
-# Flash an ESP32-S3 (requires esptool: pip install esptool)
+# Flash an ESP32-S3 with 8MB flash (most boards)
 python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
   write-flash --flash-mode dio --flash-size 8MB --flash-freq 80m \
   0x0 bootloader.bin 0x8000 partition-table.bin \
   0xf000 ota_data_initial.bin 0x20000 esp32-csi-node.bin
+```
+
+**4MB flash boards** (e.g. ESP32-S3 SuperMini 4MB): download the 4MB binaries from the [v0.4.3 release](https://github.com/ruvnet/RuView/releases/tag/v0.4.3-esp32) and use `--flash-size 4MB`:
+
+```bash
+python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
+  write-flash --flash-mode dio --flash-size 4MB --flash-freq 80m \
+  0x0 bootloader.bin 0x8000 partition-table-4mb.bin \
+  0xF000 ota_data_initial.bin 0x20000 esp32-csi-node-4mb.bin
 ```
 
 **Provisioning:**
@@ -894,14 +905,14 @@ Key NVS settings for edge processing:
 |---------|---------|-----------------|
 | `edge_tier` | 0 | Processing tier (0=off, 1=stats, 2=vitals) |
 | `pres_thresh` | 50 | Sensitivity for presence detection (lower = more sensitive) |
-| `fall_thresh` | 500 | Fall detection threshold (variance spike trigger) |
+| `fall_thresh` | 15000 | Fall detection threshold in milli-units (15000 = 15.0 rad/s²). Normal walking is 2-5, real falls are 20+. Raise to reduce false positives. |
 | `vital_win` | 300 | How many frames of phase history to keep for breathing/HR extraction |
 | `vital_int` | 1000 | How often to send a vitals packet, in milliseconds |
 | `subk_count` | 32 | Number of best subcarriers to keep (out of 56) |
 
 When Tier 2 is active, the node sends a 32-byte vitals packet at 1 Hz (configurable) containing presence state, motion score, breathing BPM, heart rate BPM, confidence values, fall flag, and occupancy estimate. The packet uses magic `0xC5110002` and is sent to the same aggregator IP and port as raw CSI frames.
 
-Binary size: 777 KB (24% free in the 1 MB app partition).
+Binary size: 990 KB (8MB flash, 52% free) or 773 KB (4MB flash). v0.5.0 adds mmWave sensor fusion (~12 KB larger).
 
 > **Alpha notice**: Vital sign estimation uses heuristic BPM extraction. Accuracy is best with stationary subjects in controlled environments. Not for medical use.
 
