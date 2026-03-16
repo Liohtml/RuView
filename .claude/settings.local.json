@@ -1,6 +1,12 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(cd:*)",
+      "Bash(find:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "claude-flow"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
