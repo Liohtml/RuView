@@ -285,6 +285,8 @@ struct AppStateInner {
     frame_history: VecDeque<Vec<f64>>,
     tick: u64,
     source: String,
+    /// Instant of the last ESP32 UDP frame received (for offline detection).
+    last_esp32_frame: Option<std::time::Instant>,
     tx: broadcast::Sender<String>,
     total_detections: u64,
     start_time: std::time::Instant,
@@ -304,6 +306,8 @@ struct AppStateInner {
     model_loaded: bool,
     /// Smoothed person count (EMA) for hysteresis — prevents frame-to-frame jumping.
     smoothed_person_score: f64,
+    /// Previous person count for hysteresis (asymmetric up/down thresholds).
+    prev_person_count: usize,
     // ── Motion smoothing & adaptive baseline (ADR-047 tuning) ────────────
     /// EMA-smoothed motion score (alpha ~0.15 for ~10 FPS → ~1s time constant).
     smoothed_motion: f64,
@@ -360,6 +364,25 @@ struct AppStateInner {
     // ── Adaptive classifier (environment-tuned) ──────────────────────────
     /// Trained adaptive model (loaded from data/adaptive_model.json or trained at runtime).
     adaptive_model: Option<adaptive_classifier::AdaptiveModel>,
+}
+
+/// If no ESP32 frame arrives within this duration, source reverts to offline.
+const ESP32_OFFLINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl AppStateInner {
+    /// Return the effective data source, accounting for ESP32 frame timeout.
+    /// If the source is "esp32" but no frame has arrived in 5 seconds, returns
+    /// "esp32:offline" so the UI can distinguish active vs stale connections.
+    fn effective_source(&self) -> String {
+        if self.source == "esp32" {
+            if let Some(last) = self.last_esp32_frame {
+                if last.elapsed() > ESP32_OFFLINE_TIMEOUT {
+                    return "esp32:offline".to_string();
+                }
+            }
+        }
+        self.source.clone()
+    }
 }
 
 /// Number of frames retained in `frame_history` for temporal analysis.
@@ -1247,12 +1270,15 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
 
         let feat_variance = features.variance;
 
-        // Multi-person estimation with temporal smoothing (EMA α=0.15).
+        // Multi-person estimation with temporal smoothing (EMA α=0.10).
         let raw_score = compute_person_score(&features);
-        s.smoothed_person_score = s.smoothed_person_score * 0.85 + raw_score * 0.15;
+        s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
         let est_persons = if classification.presence {
-            score_to_person_count(s.smoothed_person_score)
+            let count = score_to_person_count(s.smoothed_person_score, s.prev_person_count);
+            s.prev_person_count = count;
+            count
         } else {
+            s.prev_person_count = 0;
             0
         };
 
@@ -1377,12 +1403,15 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
 
     let feat_variance = features.variance;
 
-    // Multi-person estimation with temporal smoothing.
+    // Multi-person estimation with temporal smoothing (EMA α=0.10).
     let raw_score = compute_person_score(&features);
-    s.smoothed_person_score = s.smoothed_person_score * 0.85 + raw_score * 0.15;
+    s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
     let est_persons = if classification.presence {
-        score_to_person_count(s.smoothed_person_score)
+        let count = score_to_person_count(s.smoothed_person_score, s.prev_person_count);
+        s.prev_person_count = count;
+        count
     } else {
+        s.prev_person_count = 0;
         0
     };
 
@@ -1661,7 +1690,7 @@ async fn health(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let s = state.read().await;
     Json(serde_json::json!({
         "status": "ok",
-        "source": s.source,
+        "source": s.effective_source(),
         "tick": s.tick,
         "clients": s.tx.receiver_count(),
     }))
@@ -1724,18 +1753,45 @@ fn compute_person_score(feat: &FeatureInfo) -> f64 {
 
 /// Convert smoothed person score to discrete count with hysteresis.
 ///
-/// Uses asymmetric thresholds: higher threshold to add a person, lower to remove.
-/// This prevents flickering at the boundary.
-fn score_to_person_count(smoothed_score: f64) -> usize {
-    // Thresholds chosen conservatively for single-ESP32 link:
-    //   score > 0.50 → 2 persons (needs sustained high variance + change points)
-    //   score > 0.80 → 3 persons (very high activity, rare with single link)
-    if smoothed_score > 0.80 {
-        3
-    } else if smoothed_score > 0.50 {
-        2
-    } else {
-        1
+/// Uses asymmetric thresholds: higher threshold to *add* a person, lower to
+/// *drop* one.  This prevents flickering when the score hovers near a boundary
+/// (the #1 user-reported issue — see #237, #249, #280, #292).
+fn score_to_person_count(smoothed_score: f64, prev_count: usize) -> usize {
+    // Up-thresholds (must exceed to increase count):
+    //   1→2: 0.65  (raised from 0.50 — multipath in small rooms hit 0.50 easily)
+    //   2→3: 0.85  (raised from 0.80 — 3 persons needs strong sustained signal)
+    // Down-thresholds (must drop below to decrease count):
+    //   2→1: 0.45  (hysteresis gap of 0.20)
+    //   3→2: 0.70  (hysteresis gap of 0.15)
+    match prev_count {
+        0 | 1 => {
+            if smoothed_score > 0.85 {
+                3
+            } else if smoothed_score > 0.65 {
+                2
+            } else {
+                1
+            }
+        }
+        2 => {
+            if smoothed_score > 0.85 {
+                3
+            } else if smoothed_score < 0.45 {
+                1
+            } else {
+                2 // hold — within hysteresis band
+            }
+        }
+        _ => {
+            // prev_count >= 3
+            if smoothed_score < 0.45 {
+                1
+            } else if smoothed_score < 0.70 {
+                2
+            } else {
+                3 // hold
+            }
+        }
     }
 }
 
@@ -1942,7 +1998,7 @@ async fn health_ready(State(state): State<SharedState>) -> Json<serde_json::Valu
     let s = state.read().await;
     Json(serde_json::json!({
         "status": "ready",
-        "source": s.source,
+        "source": s.effective_source(),
     }))
 }
 
@@ -1953,7 +2009,10 @@ async fn health_system(State(state): State<SharedState>) -> Json<serde_json::Val
         "status": "healthy",
         "components": {
             "api": { "status": "healthy", "message": "Rust Axum server" },
-            "hardware": { "status": "healthy", "message": format!("Source: {}", s.source) },
+            "hardware": {
+                "status": if s.effective_source().ends_with(":offline") { "degraded" } else { "healthy" },
+                "message": format!("Source: {}", s.effective_source())
+            },
             "pose": { "status": "healthy", "message": "WiFi-derived pose estimation" },
             "stream": { "status": if s.tx.receiver_count() > 0 { "healthy" } else { "idle" },
                         "message": format!("{} client(s)", s.tx.receiver_count()) },
@@ -1993,7 +2052,7 @@ async fn api_info(State(state): State<SharedState>) -> Json<serde_json::Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "environment": "production",
         "backend": "rust",
-        "source": s.source,
+        "source": s.effective_source(),
         "features": {
             "wifi_sensing": true,
             "pose_estimation": true,
@@ -2014,7 +2073,7 @@ async fn pose_current(State(state): State<SharedState>) -> Json<serde_json::Valu
         "timestamp": chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
         "persons": persons,
         "total_persons": persons.len(),
-        "source": s.source,
+        "source": s.effective_source(),
     }))
 }
 
@@ -2024,7 +2083,7 @@ async fn pose_stats(State(state): State<SharedState>) -> Json<serde_json::Value>
         "total_detections": s.total_detections,
         "average_confidence": 0.87,
         "frames_processed": s.tick,
-        "source": s.source,
+        "source": s.effective_source(),
     }))
 }
 
@@ -2048,7 +2107,7 @@ async fn stream_status(State(state): State<SharedState>) -> Json<serde_json::Val
         "active": true,
         "clients": s.tx.receiver_count(),
         "fps": if s.tick > 1 { 10u64 } else { 0u64 },
-        "source": s.source,
+        "source": s.effective_source(),
     }))
 }
 
@@ -2584,7 +2643,7 @@ async fn vital_signs_endpoint(State(state): State<SharedState>) -> Json<serde_js
             "heartbeat_samples": hb_len,
             "heartbeat_capacity": hb_cap,
         },
-        "source": s.source,
+        "source": s.effective_source(),
         "tick": s.tick,
     }))
 }
@@ -2790,6 +2849,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
 
                     let mut s = state.write().await;
                     s.source = "esp32".to_string();
+                    s.last_esp32_frame = Some(std::time::Instant::now());
 
                     // Append current amplitudes to history before extracting features so
                     // that temporal analysis includes the most recent frame.
@@ -2824,12 +2884,15 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     let vitals = smooth_vitals(&mut s, &raw_vitals);
                     s.latest_vitals = vitals.clone();
 
-                    // Multi-person estimation with temporal smoothing.
+                    // Multi-person estimation with temporal smoothing (EMA α=0.10).
                     let raw_score = compute_person_score(&features);
-                    s.smoothed_person_score = s.smoothed_person_score * 0.85 + raw_score * 0.15;
+                    s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
                     let est_persons = if classification.presence {
-                        score_to_person_count(s.smoothed_person_score)
+                        let count = score_to_person_count(s.smoothed_person_score, s.prev_person_count);
+                        s.prev_person_count = count;
+                        count
                     } else {
+                        s.prev_person_count = 0;
                         0
                     };
 
@@ -2929,12 +2992,15 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
         let frame_amplitudes = frame.amplitudes.clone();
         let frame_n_sub = frame.n_subcarriers;
 
-        // Multi-person estimation with temporal smoothing.
+        // Multi-person estimation with temporal smoothing (EMA α=0.10).
         let raw_score = compute_person_score(&features);
-        s.smoothed_person_score = s.smoothed_person_score * 0.85 + raw_score * 0.15;
+        s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
         let est_persons = if classification.presence {
-            score_to_person_count(s.smoothed_person_score)
+            let count = score_to_person_count(s.smoothed_person_score, s.prev_person_count);
+            s.prev_person_count = count;
+            count
         } else {
+            s.prev_person_count = 0;
             0
         };
 
@@ -3566,6 +3632,7 @@ async fn main() {
         frame_history: VecDeque::new(),
         tick: 0,
         source: source.into(),
+        last_esp32_frame: None,
         tx,
         total_detections: 0,
         start_time: std::time::Instant::now(),
@@ -3577,6 +3644,7 @@ async fn main() {
         active_sona_profile: None,
         model_loaded,
         smoothed_person_score: 0.0,
+        prev_person_count: 0,
         smoothed_motion: 0.0,
         current_motion_level: "absent".to_string(),
         debounce_counter: 0,
@@ -3739,7 +3807,7 @@ async fn main() {
             "WiFi DensePose sensing model state",
         );
         builder.add_metadata(&serde_json::json!({
-            "source": s.source,
+            "source": s.effective_source(),
             "total_ticks": s.tick,
             "total_detections": s.total_detections,
             "uptime_secs": s.start_time.elapsed().as_secs(),
