@@ -1,0 +1,14 @@
+{
+    "inactivity_threshold_seconds": 1200,
+    "poll_interval_seconds": 30,
+    "ntfy_topic": "caresignal-pflege",
+    "ntfy_base_url": "https://ntfy.sh",
+    "status_file_path": "caresignal_status.json",
+    "alarm_log_path": "caresignal_alarms.db",
+    "rooms": [
+        {"room_id": "room_1", "node_id": 1, "name": "Schlafzimmer Frau Mueller"},
+        {"room_id": "room_2", "node_id": 2, "name": "Wohnzimmer Frau Mueller"},
+        {"room_id": "room_3", "node_id": 3, "name": "Schlafzimmer Herr Schmidt"},
+        {"room_id": "room_4", "node_id": 4, "name": "Wohnzimmer Herr Schmidt"}
+    ]
+}
