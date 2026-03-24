@@ -6,9 +6,9 @@
     "status_file_path": "caresignal_status.json",
     "alarm_log_path": "caresignal_alarms.db",
     "rooms": [
-        {"room_id": "room_1", "node_id": 1, "name": "Schlafzimmer Frau Mueller"},
-        {"room_id": "room_2", "node_id": 2, "name": "Wohnzimmer Frau Mueller"},
-        {"room_id": "room_3", "node_id": 3, "name": "Schlafzimmer Herr Schmidt"},
-        {"room_id": "room_4", "node_id": 4, "name": "Wohnzimmer Herr Schmidt"}
+        {"room_id": "room_1", "node_id": 1, "node_ip": "192.168.0.113", "name": "Schlafzimmer Frau Mueller"},
+        {"room_id": "room_2", "node_id": 2, "node_ip": "192.168.0.204", "name": "Wohnzimmer Frau Mueller"},
+        {"room_id": "room_3", "node_id": 3, "node_ip": "192.168.0.122", "name": "Schlafzimmer Herr Schmidt"},
+        {"room_id": "room_4", "node_id": 4, "node_ip": "192.168.0.180", "name": "Wohnzimmer Herr Schmidt"}
     ]
 }

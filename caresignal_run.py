@@ -66,8 +66,16 @@ def main() -> None:
     # Dashboard in background thread
     threading.Thread(target=start_dashboard_server, daemon=True).start()
 
+    # Build IP -> node_id map from config (workaround for firmware node_id bug)
+    ip_map = {}
+    for room in config.rooms:
+        if room.node_ip:
+            ip_map[room.node_ip] = room.node_id
+    if ip_map:
+        logger.info("IP-basiertes Node-Mapping aktiv: %s", ip_map)
+
     # Multi-node ESP32 collector
-    collector = CareSignalMultiNodeCollector(port=5005)
+    collector = CareSignalMultiNodeCollector(port=5005, ip_to_node_id=ip_map)
     try:
         collector.start()
     except OSError as exc:

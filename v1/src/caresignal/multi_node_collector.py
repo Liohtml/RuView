@@ -39,6 +39,10 @@ class CareSignalMultiNodeCollector:
 
     Each node_id gets its own RingBuffer, RssiFeatureExtractor, and
     PresenceClassifier so that classification is per-room, not global.
+
+    When ip_to_node_id is provided, frames are demuxed by source IP
+    instead of the node_id in the frame header (workaround for firmware
+    that sends incorrect node_id values).
     """
 
     def __init__(
@@ -47,6 +51,7 @@ class CareSignalMultiNodeCollector:
         port: int = DEFAULT_PORT,
         sample_rate_hz: float = 10.0,
         buffer_seconds: int = 120,
+        ip_to_node_id: Optional[Dict[str, int]] = None,
     ) -> None:
         self._bind = bind_addr
         self._port = port
@@ -55,6 +60,7 @@ class CareSignalMultiNodeCollector:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._sock: Optional[socket.socket] = None
+        self._ip_map = ip_to_node_id or {}  # IP -> node_id override
 
         # Per-node state
         self._buffers: Dict[int, RingBuffer] = {}
@@ -149,11 +155,15 @@ class CareSignalMultiNodeCollector:
         if len(raw) < HEADER_SIZE:
             return
 
-        magic, node_id, n_ant, n_sc, freq_mhz, seq, rssi_u8, noise_u8 = \
+        magic, frame_node_id, n_ant, n_sc, freq_mhz, seq, rssi_u8, noise_u8 = \
             struct.unpack_from(HEADER_FMT, raw, 0)
 
         if magic != MAGIC:
             return
+
+        # Use IP-based mapping if available, otherwise trust frame header
+        src_ip = addr[0] if addr else ""
+        node_id = self._ip_map.get(src_ip, frame_node_id)
 
         rssi = rssi_u8 if rssi_u8 < 128 else rssi_u8 - 256
         noise = noise_u8 if noise_u8 < 128 else noise_u8 - 256

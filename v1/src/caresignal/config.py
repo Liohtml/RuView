@@ -11,6 +11,7 @@ class RoomConfig:
     room_id: str
     name: str
     node_id: int = 0          # ESP32 node_id for this room
+    node_ip: str = ""         # ESP32 IP address (fallback when firmware sends wrong node_id)
     ntfy_topic: str = ""      # overrides global topic when set
 
 
