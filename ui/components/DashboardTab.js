@@ -64,9 +64,10 @@ export class DashboardTab {
       this.updateHealthStatus(health);
     });
 
-    // Subscribe to sensing service state changes for data source indicator
+    // Subscribe to sensing service state changes for data source indicator + hardware status
     this._sensingUnsub = sensingService.onStateChange(() => {
       this.updateDataSourceIndicator();
+      if (healthService.lastHealthStatus) this.updateHealthStatus(healthService.lastHealthStatus);
     });
     // Also update on data — catches source changes mid-stream
     this._sensingDataUnsub = sensingService.onData(() => {
@@ -161,10 +162,19 @@ export class DashboardTab {
       overallStatus.textContent = health.status.toUpperCase();
     }
 
-    // Update component statuses
+    // Update component statuses — override hardware with real sensing state
     if (health.components) {
+      const sensingSource = sensingService.dataSource;
+      const esp32Live = sensingSource === 'live';
       Object.entries(health.components).forEach(([component, status]) => {
-        this.updateComponentStatus(component, status);
+        if (component === 'hardware' && esp32Live) {
+          this.updateComponentStatus(component, {
+            status: 'healthy',
+            message: `ESP32 CSI hardware connected (${sensingService.serverSource || 'esp32'})`
+          });
+        } else {
+          this.updateComponentStatus(component, status);
+        }
       });
     }
 

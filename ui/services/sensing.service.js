@@ -12,8 +12,7 @@
 // Derive WebSocket URL from the page origin so it works on any port.
 // The /ws/sensing endpoint is available on the same HTTP port (3000).
 const _wsProto = (typeof window !== 'undefined' && window.location.protocol === 'https:') ? 'wss:' : 'ws:';
-const _wsHost  = (typeof window !== 'undefined' && window.location.host) ? window.location.host : 'localhost:3000';
-const SENSING_WS_URL = `${_wsProto}//${_wsHost}/ws/sensing`;
+const SENSING_WS_URL = `${_wsProto}//localhost:8765`;
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000];
 const MAX_RECONNECT_ATTEMPTS = 20;
 // Number of failed attempts that must occur before simulation starts.

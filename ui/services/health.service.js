@@ -55,23 +55,41 @@ export class HealthService {
       return;
     }
 
-    // Initial check (silent on failure — DensePose API may not be running)
-    this.getSystemHealth().catch(() => {
-      // DensePose API not running — sensing-only mode, skip polling
+    // Initial check with metrics (silent on failure — DensePose API may not be running)
+    Promise.all([
+      this.getSystemHealth(),
+      this.getSystemMetrics().catch(() => null)
+    ]).then(([health, metricsResp]) => {
+      if (metricsResp?.metrics) {
+        health.metrics = metricsResp.metrics;
+        this.notifySubscribers(health);
+      }
+    }).catch(() => {
       this._backendUnavailable = true;
     });
 
-    // Set up periodic checks only if backend was reachable
-    this.healthCheckInterval = setInterval(() => {
+    // Fetch system metrics and merge into health update
+    const fetchWithMetrics = () => {
       if (this._backendUnavailable) return;
-      this.getSystemHealth().catch(error => {
+      Promise.all([
+        this.getSystemHealth(),
+        this.getSystemMetrics().catch(() => null)
+      ]).then(([health, metricsResp]) => {
+        if (metricsResp?.metrics) {
+          health.metrics = metricsResp.metrics;
+          this.notifySubscribers(health);
+        }
+      }).catch(error => {
         this.notifySubscribers({
           status: 'error',
           error: error.message,
           timestamp: new Date().toISOString()
         });
       });
-    }, intervalMs);
+    };
+
+    // Set up periodic checks only if backend was reachable
+    this.healthCheckInterval = setInterval(fetchWithMetrics, intervalMs);
   }
 
   // Stop health monitoring
