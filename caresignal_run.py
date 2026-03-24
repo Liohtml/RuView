@@ -10,7 +10,6 @@ Falls back to demo-mode defaults (SimulatedCollector, 1 room).
 """
 from __future__ import annotations
 
-import functools
 import json
 import logging
 import threading
@@ -51,11 +50,35 @@ def load_config() -> CareSignalConfig:
     )
 
 
+class DashboardHandler(SimpleHTTPRequestHandler):
+    """Serves dashboard HTML and proxies status.json from repo root."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(DASHBOARD_DIR), **kwargs)
+
+    def do_GET(self):
+        if self.path.startswith("/caresignal_status.json"):
+            status_file = REPO_ROOT / "caresignal_status.json"
+            if status_file.exists():
+                data = status_file.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self.send_error(404, "Status file not found")
+            return
+        super().do_GET()
+
+    def log_message(self, format, *args):
+        pass  # suppress request logs
+
+
 def start_dashboard_server() -> None:
-    """Serve dashboard HTML without changing process CWD."""
-    handler = functools.partial(SimpleHTTPRequestHandler,
-                                directory=str(DASHBOARD_DIR))
-    server = HTTPServer(("", DASHBOARD_PORT), handler)
+    """Serve dashboard HTML and status JSON."""
+    server = HTTPServer(("", DASHBOARD_PORT), DashboardHandler)
     logger.info("Dashboard: http://localhost:%d/index.html", DASHBOARD_PORT)
     server.serve_forever()
 
